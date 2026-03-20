@@ -2,5 +2,5 @@
 builder = "nixpacks"
 
 [deploy]
-startCommand = "python scraper.py"
+startCommand = "python init_db.py"
 restartPolicyType = "never"
