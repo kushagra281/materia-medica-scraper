@@ -183,18 +183,25 @@ _SECTION_RE = re.compile(
     r'^([A-Z][A-Za-z]*(?:[\s\-/][A-Za-z]+){0,5})\.--\s+(.+)'
 )
 
-# Footer/noise lines — stop or skip these
-_FOOTER_RE = re.compile(
+# Hard stop — stop reading when we hit true footer lines (never appear before content)
+_STOP_RE = re.compile(
     r'is available at Remedia|Other names for this|'
-    r'5,500 homeopathic|66,000 customers|'
     r'This is a chapter|powered by|'
-    r'Copyright\s*©|Imprint|'
+    r'Copyright\s*©|Imprint',
+    re.IGNORECASE,
+)
+
+# Skip-only — discard line but keep reading (appear in nav before content)
+_SKIP_RE = re.compile(
     r'more information and order|'
     r'Free Materia Medica books|'
     r'Materia Medica by William Boericke|'
+    r'5,500 homeopathic|66,000 customers|'
     r'Manual potenti|rating of the product|excellent',
     re.IGNORECASE,
 )
+
+_FOOTER_RE = _STOP_RE  # backward compat
 
 
 def _clean(text: str) -> str:
@@ -220,9 +227,12 @@ def get_page_text(soup: BeautifulSoup, remedy_name: str) -> str:
     lines = []
     for line in full.splitlines():
         s = line.strip()
-        # Hard stop at footer
-        if s and _FOOTER_RE.search(s):
+        # Hard stop at true footer markers
+        if s and _STOP_RE.search(s):
             break
+        # Skip navigation noise but keep reading
+        if s and _SKIP_RE.search(s):
+            continue
         lines.append(s)
 
     return "\n".join(lines)
