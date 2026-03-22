@@ -277,7 +277,13 @@ def parse_sections(body_text: str) -> tuple[str, list[Section]]:
                 flush()
             in_intro = False
             order += 1
-            cur_heading = m.group(1).strip()
+            raw_heading = m.group(1).strip()
+            existing_headings = [s.heading for s in sections]
+            if raw_heading in existing_headings:
+                count = sum(1 for h in existing_headings if h == raw_heading or h.startswith(raw_heading + ' '))
+                cur_heading = f"{raw_heading} {count + 1}"
+            else:
+                cur_heading = raw_heading
             first = m.group(2).strip()
             cur_lines = [first] if first else []
         else:
