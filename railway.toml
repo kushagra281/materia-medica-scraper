@@ -2,5 +2,5 @@
 builder = "nixpacks"
 
 [deploy]
-startCommand = "python migrate_to_supabase.py"
+startCommand = "python scraper.py"
 restartPolicyType = "never"
