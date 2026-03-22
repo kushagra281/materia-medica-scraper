@@ -2,5 +2,5 @@
 builder = "nixpacks"
 
 [deploy]
-startCommand = "python scraper.py"
+startCommand = "python extract_symptoms.py"
 restartPolicyType = "never"
