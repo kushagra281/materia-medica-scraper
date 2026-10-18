@@ -12,6 +12,7 @@ Run:
     python scraper.py
 """
 
+import os
 import re
 import sys
 import time
@@ -22,6 +23,7 @@ from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
+from remedy_names import clean_remedy_name
 import psycopg2
 import psycopg2.extras
 
@@ -79,6 +81,11 @@ def db_connect():
     except psycopg2.OperationalError as exc:
         log.critical("PostgreSQL connection failed: %s", exc)
         sys.exit(1)
+
+
+# FORCE_REFRESH=1 re-scrapes pages that are already in the database (needed once to repair
+# the common_name / introduction / missing-section problems of earlier runs).
+FORCE_REFRESH = os.environ.get("FORCE_REFRESH", "") == "1"
 
 
 def url_already_scraped(conn, url: str) -> bool:
@@ -180,7 +187,7 @@ def fetch(url: str) -> Optional[BeautifulSoup]:
 # Boericke's format: "HeadingWord.--  content text..."
 # Confirmed on Arsenicum Album, Belladonna, Nux Vomica pages
 _SECTION_RE = re.compile(
-    r'^([A-Z][A-Za-z]*(?:[\s\-/][A-Za-z]+){0,5})\.--\s*(.+)'
+    r'^([A-Z][A-Za-z]*(?:[\s\-/][A-Za-z]+){0,5})\.--\s*(.*)'
 )
 
 # Hard stop — stop reading when we hit true footer lines (never appear before content)
@@ -205,7 +212,9 @@ _FOOTER_RE = _STOP_RE  # backward compat
 
 
 def _clean(text: str) -> str:
-    return re.sub(r'\s+', ' ', text).strip()
+    text = re.sub(r'\s+', ' ', text).strip()
+    text = re.sub(r'\s+([,.;:!?)])', r'\1', text)      # "word ," -> "word,"
+    return re.sub(r'\(\s+', '(', text)
 
 
 def get_page_text(soup: BeautifulSoup, remedy_name: str) -> str:
@@ -235,6 +244,33 @@ def get_page_text(soup: BeautifulSoup, remedy_name: str) -> str:
             continue
         lines.append(s)
 
+    return "\n".join(lines)
+
+
+def get_text_after_h1(soup: BeautifulSoup) -> str:
+    """
+    Remedy text that follows the page's <h1>.
+
+    The old get_page_text() searched the whole page for the remedy name and took everything
+    after the FIRST hit - which is the <title> / navigation - so every remedy got the site
+    navigation ("Index A B C ... Z 123") in its introduction and "Materia Medica" (a
+    breadcrumb) as its common name. Starting at the <h1> avoids that.
+    """
+    h1 = soup.find("h1")
+    if h1 is None:
+        return ""
+    lines: list[str] = []
+    for node in h1.find_all_next(string=True):
+        if node.parent is not None and node.parent.name in ("script", "style", "noscript"):
+            continue
+        if node.find_parent("h1") is not None:      # the title itself is not part of the text
+            continue
+        s = str(node).strip()
+        if s and _STOP_RE.search(s):
+            break
+        if s and _SKIP_RE.search(s):
+            continue
+        lines.append(s)
     return "\n".join(lines)
 
 
@@ -300,6 +336,17 @@ def parse_sections(body_text: str) -> tuple[str, list[Section]]:
 
 def quality_check(remedy: Remedy) -> list[str]:
     issues: list[str] = []
+
+    if remedy.source_site == KENT_SOURCE:
+        # Kent: no common name / introduction / labelled sections - only check there is a real lecture.
+        if not remedy.name:
+            issues.append("MISSING: name is empty")
+        total = sum(len(s.content) for s in remedy.sections)
+        if not remedy.sections:
+            issues.append("MISSING: no lecture text extracted")
+        elif total < config.KENT_MIN_TOTAL_CHARS:
+            issues.append(f"TOO SMALL: {total} chars (min {config.KENT_MIN_TOTAL_CHARS})")
+        return issues
 
     if not remedy.name:
         issues.append("MISSING: name is empty")
@@ -382,12 +429,12 @@ def mm_parse(url: str, soup: BeautifulSoup) -> Optional[Remedy]:
     if h1 is None:
         log.warning("  No <h1> on %s", url)
         return None
-    name = _clean(h1.get_text())
+    name = clean_remedy_name(_clean(h1.get_text()))
     if not name:
         return None
 
-    # Get full page text after the remedy name
-    body_text = get_page_text(soup, name)
+    # Text that follows the <h1> (see get_text_after_h1)
+    body_text = get_text_after_h1(soup)
 
     # First non-blank, non-section line = common name
     common_name = ""
@@ -398,7 +445,7 @@ def mm_parse(url: str, soup: BeautifulSoup) -> Optional[Remedy]:
         if not s:
             continue
         if not _SECTION_RE.match(s):
-            common_name = _clean(s)
+            common_name = _clean(s).rstrip('.')
             start_idx = i + 1
         break
 
@@ -414,6 +461,60 @@ def mm_parse(url: str, soup: BeautifulSoup) -> Optional[Remedy]:
         introduction=introduction,
         sections=sections,
         source_site="materiamedica.info",
+        source_url=url,
+    )
+
+
+# ═══════════════════════════════════════════════════════════════
+# SOURCE 3 — Kent, Lectures on Homoeopathic Materia Medica (materiamedica.info)
+# ═══════════════════════════════════════════════════════════════
+# Kent's pages are lecture prose: an <h1>, a promo line, then ~50 paragraphs with no
+# "Mind.--" style labels. The whole lecture is stored as ONE section so it can be searched
+# and attributed; it is not split into body systems (Kent did not write it that way).
+
+KENT_SOURCE = "materiamedica.info/kent"
+KENT_HEADING = "Kent Lectures"
+
+
+def kent_collect_urls() -> list[str]:
+    log.info("Collecting URLs from materiamedica.info (Kent) …")
+    soup = fetch(config.KENT_INDEX)
+    if soup is None:
+        log.error("Cannot load Kent index. Skipping.")
+        return []
+    urls: list[str] = []
+    for a in soup.select("a[href]"):
+        href = a["href"].strip()
+        if re.match(r'^/en/materia-medica/james-tyler-kent/[A-Za-z0-9][A-Za-z0-9\-]+$', href) \
+                and not href.endswith("/index") and "preface" not in href.lower():
+            full = config.MATERIAMEDICA_BASE + href
+            if full not in urls:
+                urls.append(full)
+    log.info("  → %d Kent URLs found.", len(urls))
+    return urls
+
+
+def kent_parse(url: str, soup: BeautifulSoup) -> Optional[Remedy]:
+    slug = "kent-" + url.rstrip("/").split("/")[-1].lower()
+    h1 = soup.find("h1")
+    if h1 is None:
+        log.warning("  No <h1> on %s", url)
+        return None
+    name = _clean(h1.get_text())
+    if not name:
+        return None
+
+    body = get_text_after_h1(soup)
+    text = _clean(" ".join(l for l in body.splitlines() if l.strip()))
+    sections = [Section(heading=KENT_HEADING, order=1, content=text)] if text else []
+
+    return Remedy(
+        slug=slug,
+        name=name,
+        common_name="",
+        introduction="",
+        sections=sections,
+        source_site=KENT_SOURCE,
         source_url=url,
     )
 
@@ -519,7 +620,7 @@ def run(conn, urls: list[str], parser_fn, label: str):
     for i, url in enumerate(urls, start=1):
         log.info("[%d/%d]  %s", i, total, url)
 
-        if url_already_scraped(conn, url):
+        if not FORCE_REFRESH and url_already_scraped(conn, url):
             log.info("  → already in DB — skipping.")
             log_scrape(conn, url, "skip")
             skipped += 1
@@ -599,6 +700,12 @@ def main() -> None:
         urls = mm_collect_urls()
         if urls:
             s, sk, e = run(conn, urls, mm_parse, "materiamedica.info")
+            gs += s; gsk += sk; ge += e
+
+    if config.SCRAPE_KENT:
+        urls = kent_collect_urls()
+        if urls:
+            s, sk, e = run(conn, urls, kent_parse, "materiamedica.info (Kent)")
             gs += s; gsk += sk; ge += e
 
     if config.SCRAPE_HOMEOINT:
