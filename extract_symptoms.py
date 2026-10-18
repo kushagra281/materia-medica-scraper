@@ -26,6 +26,11 @@ Changes vs. the previous version
 import os
 import re
 
+from remedy_names import canonical_name, clean_remedy_name, name_key as _name_key
+
+KENT_SOURCE = "materiamedica.info/kent"
+MAX_SYMPTOM_CHARS = 500     # Kent writes long sentences; cut them at a comma/semicolon
+
 # Sections to skip — these are not symptoms
 SKIP_HEADINGS = {
     "Relationship", "Dose", "Dose 2", "Non-Homeopathic Uses",
@@ -106,13 +111,29 @@ def split_symptoms(text: str) -> list[str]:
 
 
 def clean_name(name: str) -> str:
-    """Collapse whitespace and strip trailing punctuation from a remedy name."""
-    return re.sub(r'\s+', ' ', name or '').strip().rstrip('.,;:').strip()
+    """Collapse whitespace, strip trailing punctuation and site clutter from a remedy name."""
+    return clean_remedy_name(name)
 
 
 def name_key(name: str) -> str:
     """Case/punctuation-insensitive key: 'ARSENICUM ALBUM.' == 'Arsenicum  album'."""
-    return re.sub(r'\s+', ' ', re.sub(r'[^a-z0-9 ]', ' ', clean_name(name).lower())).strip()
+    return _name_key(name)
+
+
+def wrap_long(symptom: str, limit: int = MAX_SYMPTOM_CHARS) -> list[str]:
+    """Cut a very long sentence at the last ';' or ',' before `limit` (never mid-word)."""
+    out: list[str] = []
+    rest = symptom
+    while len(rest) > limit:
+        cut = max(rest.rfind('; ', 0, limit), rest.rfind(', ', 0, limit))
+        if cut < limit // 3:
+            cut = rest.rfind(' ', 0, limit)
+        if cut <= 0:
+            break
+        out.append(rest[:cut + 1].strip().rstrip(',;'))
+        rest = rest[cut + 1:].strip()
+    out.append(rest)
+    return [o for o in out if len(o) >= MIN_SYMPTOM_CHARS]
 
 
 def build_rows(sections) -> tuple[list[tuple], dict]:
@@ -121,6 +142,9 @@ def build_rows(sections) -> tuple[list[tuple], dict]:
     remedy_symptoms rows, canonicalising names and removing duplicates.
     Returns (rows, stats).
     """
+    # Boericke spellings are the reference; Kent titles are mapped onto them when certain.
+    known = {name_key(s["remedy_name"]) for s in sections
+             if s.get("source_site", "") != KENT_SOURCE}
     canonical: dict[str, str] = {}   # name_key -> first-seen clean name
     seen: set[tuple[str, str]] = set()
     rows: list[tuple] = []
@@ -135,18 +159,23 @@ def build_rows(sections) -> tuple[list[tuple], dict]:
             skipped_headings.add(heading)
             continue
 
-        key = name_key(sec["remedy_name"])
+        source = "kent" if sec.get("source_site", "") == KENT_SOURCE else "boericke"
+        raw_name = canonical_name(sec["remedy_name"], known) if source == "kent" else sec["remedy_name"]
+        key = name_key(raw_name)
         if not key:
             continue
-        name = canonical.setdefault(key, clean_name(sec["remedy_name"]))
+        name = canonical.setdefault(key, clean_name(raw_name))
 
-        for order, symptom in enumerate(split_symptoms(sec["content"]), 1):
+        pieces: list[str] = []
+        for symptom in split_symptoms(sec["content"]):
+            pieces.extend(wrap_long(symptom))
+        for order, symptom in enumerate(pieces, 1):
             sig = (key, re.sub(r'\s+', ' ', symptom.lower()))
             if sig in seen:
                 duplicates += 1
                 continue
             seen.add(sig)
-            rows.append((sec["remedy_id"], name, heading, symptom, order))
+            rows.append((sec["remedy_id"], name, heading, symptom, order, source))
 
     stats = {
         "skipped_headings": skipped_headings,
@@ -180,8 +209,10 @@ def run():
             remedy_name   TEXT     NOT NULL,
             heading       TEXT     NOT NULL,
             symptom       TEXT     NOT NULL,
-            symptom_order SMALLINT NOT NULL
+            symptom_order SMALLINT NOT NULL,
+            source        TEXT     NOT NULL DEFAULT 'boericke'
         );
+        ALTER TABLE remedy_symptoms ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'boericke';
         CREATE INDEX IF NOT EXISTS idx_sym_remedy_id ON remedy_symptoms (remedy_id);
         CREATE INDEX IF NOT EXISTS idx_sym_heading   ON remedy_symptoms (heading);
         CREATE INDEX IF NOT EXISTS idx_sym_fts       ON remedy_symptoms
@@ -195,7 +226,7 @@ def run():
     # Fetch all sections with remedy name
     print("Fetching sections from Supabase...")
     cur.execute("""
-        SELECT rs.remedy_id, r.name as remedy_name,
+        SELECT rs.remedy_id, r.name as remedy_name, r.source_site,
                rs.heading, rs.content
         FROM remedy_sections rs
         JOIN remedies r ON r.id = rs.remedy_id
@@ -216,8 +247,8 @@ def run():
     print("Inserting symptoms into Supabase...")
     psycopg2.extras.execute_batch(cur, """
         INSERT INTO remedy_symptoms
-            (remedy_id, remedy_name, heading, symptom, symptom_order)
-        VALUES (%s, %s, %s, %s, %s)
+            (remedy_id, remedy_name, heading, symptom, symptom_order, source)
+        VALUES (%s, %s, %s, %s, %s, %s)
     """, all_symptoms, page_size=500)
 
     conn.commit()

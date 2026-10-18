@@ -1,0 +1,71 @@
+# Runs the whole data pipeline on GitHub's servers (no Railway needed).
+# Start it by hand: GitHub -> Actions -> "Rebuild data" -> Run workflow.
+#
+# One-time setup: Settings -> Secrets and variables -> Actions -> New repository secret:
+#   PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSWORD   (the SUPABASE database, "Session pooler"
+#                                                      connection string values - GitHub's
+#                                                      runners cannot use the IPv6-only direct host)
+name: Rebuild data
+
+on:
+  workflow_dispatch:
+    inputs:
+      refresh:
+        description: "Re-scrape pages that are already stored (needed once to repair old data)"
+        type: boolean
+        default: true
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      PGHOST: ${{ secrets.PGHOST }}
+      PGPORT: ${{ secrets.PGPORT }}
+      PGDATABASE: ${{ secrets.PGDATABASE }}
+      PGUSER: ${{ secrets.PGUSER }}
+      PGPASSWORD: ${{ secrets.PGPASSWORD }}
+      # extract_symptoms.py / rebuild_rubrics.py use the SUPA_* names
+      SUPA_HOST: ${{ secrets.PGHOST }}
+      SUPA_PORT: ${{ secrets.PGPORT }}
+      SUPA_DATABASE: ${{ secrets.PGDATABASE }}
+      SUPA_USER: ${{ secrets.PGUSER }}
+      SUPA_PASSWORD: ${{ secrets.PGPASSWORD }}
+      FORCE_REFRESH: ${{ inputs.refresh && '1' || '0' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Offline tests
+        run: |
+          python test_extract_symptoms.py
+          python test_scraper_parse.py
+      - name: Check secrets are set
+        run: |
+          for v in PGHOST PGPORT PGDATABASE PGUSER PGPASSWORD; do
+            if [ -z "${!v}" ]; then echo "Missing secret $v"; exit 1; fi
+          done
+      - name: 1. Scrape Boericke + Kent into the database
+        run: python scraper.py
+      - name: 2. Split sections into symptoms
+        run: python extract_symptoms.py
+      - name: 3. Rebuild rubrics from symptoms
+        run: python rebuild_rubrics.py
+      - name: Scrape errors (for review)
+        if: always()
+        run: |
+          python - <<'PY'
+          import os, psycopg2
+          c = psycopg2.connect(host=os.environ["PGHOST"], port=int(os.environ["PGPORT"]),
+                               dbname=os.environ["PGDATABASE"], user=os.environ["PGUSER"],
+                               password=os.environ["PGPASSWORD"])
+          cur = c.cursor()
+          cur.execute("""select status, count(*) from scrape_log
+                         where logged_at > now() - interval '4 hours' group by status""")
+          print("this run:", cur.fetchall())
+          cur.execute("""select url, left(message,100) from scrape_log
+                         where status='error' and logged_at > now() - interval '4 hours' limit 40""")
+          for row in cur.fetchall(): print(row)
+          PY

@@ -30,14 +30,26 @@ MIN_SECTION_CHARS      = 20
 MIN_TOTAL_CHARS        = 400
 
 # ── Sources ────────────────────────────────────────────────────
-SCRAPE_MATERIAMEDICA = True
-SCRAPE_HOMEOINT      = True
+# Each source can be switched with an environment variable (SCRAPE_KENT=0 etc.).
+def _flag(name: str, default: bool) -> bool:
+    return os.environ.get(name, "1" if default else "0") == "1"
+
+SCRAPE_MATERIAMEDICA = _flag("SCRAPE_MATERIAMEDICA", True)    # Boericke, materiamedica.info
+SCRAPE_KENT          = _flag("SCRAPE_KENT", True)             # Kent,     materiamedica.info
+# homeoint.org (Boericke again, other site): the database holds no data from it and the path
+# below is a different book than the Repertory. Off unless asked for.
+SCRAPE_HOMEOINT      = _flag("SCRAPE_HOMEOINT", False)
 
 MATERIAMEDICA_INDEX = (
     "https://www.materiamedica.info"
     "/en/materia-medica/william-boericke/index"
 )
 MATERIAMEDICA_BASE  = "https://www.materiamedica.info"
+KENT_INDEX = (
+    "https://www.materiamedica.info"
+    "/en/materia-medica/james-tyler-kent/index"
+)
+KENT_MIN_TOTAL_CHARS = 1500   # Kent pages are long lectures without labelled sections
 
 HOMEOINT_BASE    = "https://www.homeoint.org/books/boericmm/"
 HOMEOINT_LETTERS = list("abcdefghijklmnopqrstuvwxyz")

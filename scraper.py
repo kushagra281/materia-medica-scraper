@@ -23,6 +23,7 @@ from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
+from remedy_names import clean_remedy_name
 import psycopg2
 import psycopg2.extras
 
@@ -336,6 +337,17 @@ def parse_sections(body_text: str) -> tuple[str, list[Section]]:
 def quality_check(remedy: Remedy) -> list[str]:
     issues: list[str] = []
 
+    if remedy.source_site == KENT_SOURCE:
+        # Kent: no common name / introduction / labelled sections - only check there is a real lecture.
+        if not remedy.name:
+            issues.append("MISSING: name is empty")
+        total = sum(len(s.content) for s in remedy.sections)
+        if not remedy.sections:
+            issues.append("MISSING: no lecture text extracted")
+        elif total < config.KENT_MIN_TOTAL_CHARS:
+            issues.append(f"TOO SMALL: {total} chars (min {config.KENT_MIN_TOTAL_CHARS})")
+        return issues
+
     if not remedy.name:
         issues.append("MISSING: name is empty")
     if not remedy.common_name:
@@ -417,7 +429,7 @@ def mm_parse(url: str, soup: BeautifulSoup) -> Optional[Remedy]:
     if h1 is None:
         log.warning("  No <h1> on %s", url)
         return None
-    name = _clean(h1.get_text())
+    name = clean_remedy_name(_clean(h1.get_text()))
     if not name:
         return None
 
@@ -449,6 +461,60 @@ def mm_parse(url: str, soup: BeautifulSoup) -> Optional[Remedy]:
         introduction=introduction,
         sections=sections,
         source_site="materiamedica.info",
+        source_url=url,
+    )
+
+
+# ═══════════════════════════════════════════════════════════════
+# SOURCE 3 — Kent, Lectures on Homoeopathic Materia Medica (materiamedica.info)
+# ═══════════════════════════════════════════════════════════════
+# Kent's pages are lecture prose: an <h1>, a promo line, then ~50 paragraphs with no
+# "Mind.--" style labels. The whole lecture is stored as ONE section so it can be searched
+# and attributed; it is not split into body systems (Kent did not write it that way).
+
+KENT_SOURCE = "materiamedica.info/kent"
+KENT_HEADING = "Kent Lectures"
+
+
+def kent_collect_urls() -> list[str]:
+    log.info("Collecting URLs from materiamedica.info (Kent) …")
+    soup = fetch(config.KENT_INDEX)
+    if soup is None:
+        log.error("Cannot load Kent index. Skipping.")
+        return []
+    urls: list[str] = []
+    for a in soup.select("a[href]"):
+        href = a["href"].strip()
+        if re.match(r'^/en/materia-medica/james-tyler-kent/[A-Za-z0-9][A-Za-z0-9\-]+$', href) \
+                and not href.endswith("/index") and "preface" not in href.lower():
+            full = config.MATERIAMEDICA_BASE + href
+            if full not in urls:
+                urls.append(full)
+    log.info("  → %d Kent URLs found.", len(urls))
+    return urls
+
+
+def kent_parse(url: str, soup: BeautifulSoup) -> Optional[Remedy]:
+    slug = "kent-" + url.rstrip("/").split("/")[-1].lower()
+    h1 = soup.find("h1")
+    if h1 is None:
+        log.warning("  No <h1> on %s", url)
+        return None
+    name = _clean(h1.get_text())
+    if not name:
+        return None
+
+    body = get_text_after_h1(soup)
+    text = _clean(" ".join(l for l in body.splitlines() if l.strip()))
+    sections = [Section(heading=KENT_HEADING, order=1, content=text)] if text else []
+
+    return Remedy(
+        slug=slug,
+        name=name,
+        common_name="",
+        introduction="",
+        sections=sections,
+        source_site=KENT_SOURCE,
         source_url=url,
     )
 
@@ -634,6 +700,12 @@ def main() -> None:
         urls = mm_collect_urls()
         if urls:
             s, sk, e = run(conn, urls, mm_parse, "materiamedica.info")
+            gs += s; gsk += sk; ge += e
+
+    if config.SCRAPE_KENT:
+        urls = kent_collect_urls()
+        if urls:
+            s, sk, e = run(conn, urls, kent_parse, "materiamedica.info (Kent)")
             gs += s; gsk += sk; ge += e
 
     if config.SCRAPE_HOMEOINT:

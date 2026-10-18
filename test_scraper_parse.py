@@ -66,6 +66,40 @@ def test_navigation_and_footer_do_not_leak():
     assert "Copyright" not in text and "Free Materia Medica" not in text and "Remedia" not in text
 
 
+KENT = """
+  <p>more information and order at Remedia Homeopathy.</p>
+  <p>Every medicine has a sphere of action, and it is in the study of this that we learn the remedy. """ + ("The patient is worse from motion and better from rest; he wants to lie quite still. " * 25) + """</p>
+  <p>The &quot;stitching pain&quot; is worse from the slightest <i>motion</i>.</p>
+  <p>powered by Remedia Homeopathy</p>
+  <p>Kent Mure Boericke Clarke Allen Boger zur Lippe</p>
+"""
+
+
+def test_kent_page_is_one_lecture_section():
+    soup = page(KENT, "BRYONIA")
+    r = scraper.kent_parse("https://www.materiamedica.info/en/materia-medica/james-tyler-kent/Bryonia", soup)
+    assert r.slug == "kent-bryonia" and r.name == "BRYONIA"
+    assert r.source_site == scraper.KENT_SOURCE
+    assert [s.heading for s in r.sections] == [scraper.KENT_HEADING]
+    text = r.sections[0].content
+    assert text.startswith("Every medicine has a sphere of action")
+    assert "stitching pain" in text and "Remedia" not in text and "Boger" not in text
+    assert scraper.quality_check(r) == []
+
+
+def test_kent_quality_gate_rejects_empty_pages():
+    soup = page("<p>more information and order at Remedia Homeopathy.</p>", "BRYONIA")
+    r = scraper.kent_parse("https://www.materiamedica.info/en/materia-medica/james-tyler-kent/Bryonia", soup)
+    assert scraper.quality_check(r)
+
+
+def test_boericke_title_clutter_removed():
+    soup = page(PLAIN, "GLONOINUM : GL = Glycerin; O = Oxygen; N = Nitrogen")
+    assert parse(PLAIN).name == "ARNICA MONTANA"
+    r = scraper.mm_parse("https://www.materiamedica.info/en/materia-medica/william-boericke/glonoinum", soup)
+    assert r.name == "GLONOINUM"
+
+
 def test_clean_spacing():
     assert scraper._clean("word , next ( x ) .") == "word, next (x)."
 
