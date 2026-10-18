@@ -47,6 +47,14 @@ jobs:
           for v in PGHOST PGPORT PGDATABASE PGUSER PGPASSWORD; do
             if [ -z "${!v}" ]; then echo "Missing secret $v"; exit 1; fi
           done
+          # Shape checks only - the values themselves are never printed.
+          for v in PGHOST PGPORT PGDATABASE PGUSER PGPASSWORD; do
+            val="${!v}"
+            if [ "$val" != "$(echo -n "$val" | xargs -0 echo -n 2>/dev/null)" ]; then echo "WARNING: $v has leading/trailing spaces or a newline (they are stripped by the scraper)"; fi
+          done
+          case "$PGUSER" in postgres.*) echo "PGUSER format ok (postgres.<project-id>)";; *) echo "WARNING: PGUSER should look like postgres.<project-id>";; esac
+          case "$PGHOST" in *pooler.supabase.com) echo "PGHOST is a pooler host - ok";; *) echo "WARNING: PGHOST is not a *.pooler.supabase.com host";; esac
+          echo "PGPASSWORD length: ${#PGPASSWORD} characters"
       - name: 1. Scrape Boericke + Kent into the database
         run: python scraper.py
       - name: 2. Split sections into symptoms
