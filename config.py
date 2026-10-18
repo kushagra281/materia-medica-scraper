@@ -14,7 +14,8 @@ DB = {
     "port":     int(os.environ.get("PGPORT", 5432)),
     "dbname":   os.environ.get("PGDATABASE", "materia_medica"),
     "user":     os.environ.get("PGUSER",     "postgres"),
-    "password": os.environ.get("PGPASSWORD", "your_password"),
+    # No fake default: an empty password fails loudly instead of "your_password" failing mysteriously.
+    "password": os.environ.get("PGPASSWORD", ""),
 }
 
 # ── HTTP behaviour ─────────────────────────────────────────────

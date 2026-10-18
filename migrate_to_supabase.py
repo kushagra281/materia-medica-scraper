@@ -46,6 +46,9 @@ def migrate():
     """)
     remedies = src_cur.fetchall()
 
+    # CASCADE also empties remedy_symptoms (it references remedies). The app's remedy
+    # search reads that table, so it MUST be rebuilt afterwards (see the message at the end).
+    print("   NOTE: this also clears remedy_symptoms - run extract_symptoms.py afterwards.")
     dst_cur.execute(
         "TRUNCATE remedy_sections, remedies, scrape_log RESTART IDENTITY CASCADE"
     )
@@ -107,6 +110,8 @@ def migrate():
     print(f"   Sections : {len(sections)}")
     print(f"   Logs     : {len(logs)}")
     print("\nAll data is now in Supabase!")
+    print("NEXT STEP: run  python extract_symptoms.py  - remedy_symptoms was emptied by the")
+    print("           migration and the app's search returns nothing until it is rebuilt.")
 
 
 if __name__ == "__main__":
