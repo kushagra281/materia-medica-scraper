@@ -12,6 +12,7 @@ Run:
     python scraper.py
 """
 
+import os
 import re
 import sys
 import time
@@ -79,6 +80,11 @@ def db_connect():
     except psycopg2.OperationalError as exc:
         log.critical("PostgreSQL connection failed: %s", exc)
         sys.exit(1)
+
+
+# FORCE_REFRESH=1 re-scrapes pages that are already in the database (needed once to repair
+# the common_name / introduction / missing-section problems of earlier runs).
+FORCE_REFRESH = os.environ.get("FORCE_REFRESH", "") == "1"
 
 
 def url_already_scraped(conn, url: str) -> bool:
@@ -180,7 +186,7 @@ def fetch(url: str) -> Optional[BeautifulSoup]:
 # Boericke's format: "HeadingWord.--  content text..."
 # Confirmed on Arsenicum Album, Belladonna, Nux Vomica pages
 _SECTION_RE = re.compile(
-    r'^([A-Z][A-Za-z]*(?:[\s\-/][A-Za-z]+){0,5})\.--\s*(.+)'
+    r'^([A-Z][A-Za-z]*(?:[\s\-/][A-Za-z]+){0,5})\.--\s*(.*)'
 )
 
 # Hard stop — stop reading when we hit true footer lines (never appear before content)
@@ -205,7 +211,9 @@ _FOOTER_RE = _STOP_RE  # backward compat
 
 
 def _clean(text: str) -> str:
-    return re.sub(r'\s+', ' ', text).strip()
+    text = re.sub(r'\s+', ' ', text).strip()
+    text = re.sub(r'\s+([,.;:!?)])', r'\1', text)      # "word ," -> "word,"
+    return re.sub(r'\(\s+', '(', text)
 
 
 def get_page_text(soup: BeautifulSoup, remedy_name: str) -> str:
@@ -235,6 +243,33 @@ def get_page_text(soup: BeautifulSoup, remedy_name: str) -> str:
             continue
         lines.append(s)
 
+    return "\n".join(lines)
+
+
+def get_text_after_h1(soup: BeautifulSoup) -> str:
+    """
+    Remedy text that follows the page's <h1>.
+
+    The old get_page_text() searched the whole page for the remedy name and took everything
+    after the FIRST hit - which is the <title> / navigation - so every remedy got the site
+    navigation ("Index A B C ... Z 123") in its introduction and "Materia Medica" (a
+    breadcrumb) as its common name. Starting at the <h1> avoids that.
+    """
+    h1 = soup.find("h1")
+    if h1 is None:
+        return ""
+    lines: list[str] = []
+    for node in h1.find_all_next(string=True):
+        if node.parent is not None and node.parent.name in ("script", "style", "noscript"):
+            continue
+        if node.find_parent("h1") is not None:      # the title itself is not part of the text
+            continue
+        s = str(node).strip()
+        if s and _STOP_RE.search(s):
+            break
+        if s and _SKIP_RE.search(s):
+            continue
+        lines.append(s)
     return "\n".join(lines)
 
 
@@ -386,8 +421,8 @@ def mm_parse(url: str, soup: BeautifulSoup) -> Optional[Remedy]:
     if not name:
         return None
 
-    # Get full page text after the remedy name
-    body_text = get_page_text(soup, name)
+    # Text that follows the <h1> (see get_text_after_h1)
+    body_text = get_text_after_h1(soup)
 
     # First non-blank, non-section line = common name
     common_name = ""
@@ -398,7 +433,7 @@ def mm_parse(url: str, soup: BeautifulSoup) -> Optional[Remedy]:
         if not s:
             continue
         if not _SECTION_RE.match(s):
-            common_name = _clean(s)
+            common_name = _clean(s).rstrip('.')
             start_idx = i + 1
         break
 
@@ -519,7 +554,7 @@ def run(conn, urls: list[str], parser_fn, label: str):
     for i, url in enumerate(urls, start=1):
         log.info("[%d/%d]  %s", i, total, url)
 
-        if url_already_scraped(conn, url):
+        if not FORCE_REFRESH and url_already_scraped(conn, url):
             log.info("  → already in DB — skipping.")
             log_scrape(conn, url, "skip")
             skipped += 1

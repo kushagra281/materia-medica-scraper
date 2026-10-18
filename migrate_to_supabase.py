@@ -74,15 +74,15 @@ def migrate():
     # ── 2. Migrate remedy_sections ───────────────────────────────
     print("Migrating remedy sections...")
     src_cur.execute("""
-        SELECT remedy_id, heading, heading_order, content
+        SELECT remedy_id, heading, heading_order, content, char_count
         FROM remedy_sections ORDER BY remedy_id, heading_order
     """)
     sections = src_cur.fetchall()
 
     psycopg2.extras.execute_batch(dst_cur, """
         INSERT INTO remedy_sections
-            (remedy_id, heading, heading_order, content)
-        VALUES (%s, %s, %s, %s)
+            (remedy_id, heading, heading_order, content, char_count)
+        VALUES (%s, %s, %s, %s, %s)
         ON CONFLICT DO NOTHING
     """, [tuple(s) for s in sections])
 
