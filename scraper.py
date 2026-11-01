@@ -483,6 +483,7 @@ def mm_parse(url: str, soup: BeautifulSoup) -> Optional[Remedy]:
         return None
     if not sections and len(introduction) >= 150:
         sections = [Section(heading="Description", order=1, content=introduction)]
+        introduction = ""   # the text now lives in the section; do not store it twice
 
     return Remedy(
         slug=slug,
