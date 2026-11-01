@@ -138,6 +138,7 @@ def test_prose_only_page_is_kept_as_one_section():
     html = f"<html><body><h1>OXYDENDRON ARBOREUM</h1><p>Sourwood.</p><p>{prose}</p></body></html>"
     r = scraper.mm_parse("https://x/en/materia-medica/william-boericke/oxydendron-arboreum", BeautifulSoup(html, "html.parser"))
     assert r is not None and len(r.sections) == 1 and r.sections[0].heading == "Description"
+    assert r.introduction == ""   # not stored twice
     assert scraper.blocking_issues(r, scraper.quality_check(r)) == []
 
 
