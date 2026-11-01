@@ -129,3 +129,20 @@ if __name__ == "__main__":
             fn()
             print("ok  ", name)
     print("all tests passed")
+
+
+def test_prose_only_page_is_kept_as_one_section():
+    from bs4 import BeautifulSoup
+    import scraper
+    prose = "A small tree of the eastern states. " * 8
+    html = f"<html><body><h1>OXYDENDRON ARBOREUM</h1><p>Sourwood.</p><p>{prose}</p></body></html>"
+    r = scraper.mm_parse("https://x/en/materia-medica/william-boericke/oxydendron-arboreum", BeautifulSoup(html, "html.parser"))
+    assert r is not None and len(r.sections) == 1 and r.sections[0].heading == "Description"
+    assert scraper.blocking_issues(r, scraper.quality_check(r)) == []
+
+
+def test_index_page_is_not_a_remedy():
+    from bs4 import BeautifulSoup
+    import scraper
+    html = "<html><body><h1>Index</h1><p>" + "x " * 200 + "</p></body></html>"
+    assert scraper.mm_parse("https://x/en/materia-medica/william-boericke/index", BeautifulSoup(html, "html.parser")) is None
