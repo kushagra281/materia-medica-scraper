@@ -11,9 +11,9 @@ on:
   workflow_dispatch:
     inputs:
       refresh:
-        description: "Re-scrape pages that are already stored (needed once to repair old data)"
+        description: "Re-scrape pages that are already stored (leave OFF normally: only missing remedies are fetched)"
         type: boolean
-        default: true
+        default: false
 
 jobs:
   rebuild:
