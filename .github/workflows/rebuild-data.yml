@@ -57,6 +57,8 @@ jobs:
           echo "PGPASSWORD length: ${#PGPASSWORD} characters"
       - name: 1. Scrape Boericke + Kent into the database
         run: python scraper.py
+      - name: 1b. Add remedies the website index does not list (Aconitum, Abrotanum, ...)
+        run: python book_supplement.py
       - name: 2. Split sections into symptoms
         run: python extract_symptoms.py
       - name: 3. Rebuild rubrics from symptoms
