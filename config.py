@@ -9,13 +9,18 @@ import os
 # ── PostgreSQL ──────────────────────────────────────────────────
 # On Railway: these are set automatically — you change nothing.
 # Local use : replace the "localhost" / "your_password" defaults.
+def _env(name: str, default: str = "") -> str:
+    # A trailing space or newline pasted into a GitHub secret is invisible but makes the
+    # password (or host) wrong, so it is stripped here.
+    return os.environ.get(name, default).strip()
+
 DB = {
-    "host":     os.environ.get("PGHOST",     "localhost"),
-    "port":     int(os.environ.get("PGPORT", 5432)),
-    "dbname":   os.environ.get("PGDATABASE", "materia_medica"),
-    "user":     os.environ.get("PGUSER",     "postgres"),
+    "host":     _env("PGHOST",     "localhost"),
+    "port":     int(_env("PGPORT", "5432") or 5432),
+    "dbname":   _env("PGDATABASE", "materia_medica"),
+    "user":     _env("PGUSER",     "postgres"),
     # No fake default: an empty password fails loudly instead of "your_password" failing mysteriously.
-    "password": os.environ.get("PGPASSWORD", ""),
+    "password": _env("PGPASSWORD", ""),
 }
 
 # ── HTTP behaviour ─────────────────────────────────────────────

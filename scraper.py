@@ -385,6 +385,28 @@ def quality_check(remedy: Remedy) -> list[str]:
     return issues
 
 
+# A remedy is only REFUSED when the page is clearly not a usable remedy. Everything else
+# quality_check() reports (a 17-character "Relationship" line, a short introduction, a
+# remedy Boericke wrote only two lines about) is a warning: the text is real and searchable,
+# and refusing it silently removed well-known remedies such as Arnica and Aconitum.
+BLOCKING_MIN_TOTAL_CHARS = 150
+
+def blocking_issues(remedy: Remedy, issues: list[str]) -> list[str]:
+    block: list[str] = []
+    for i in issues:
+        if i.startswith("MISSING: name") or i.startswith("MISSING: no sections") \
+           or i.startswith("MISSING: no lecture"):
+            block.append(i)
+        elif i.startswith("TOO SMALL") and remedy.source_site == KENT_SOURCE:
+            block.append(i)
+    if remedy.source_site != KENT_SOURCE:
+        total = len(remedy.name) + len(remedy.common_name) + len(remedy.introduction) \
+            + sum(len(x.content) for x in remedy.sections)
+        if total < BLOCKING_MIN_TOTAL_CHARS:
+            block.append(f"TOTAL TOO SMALL: {total} chars (blocking min {BLOCKING_MIN_TOTAL_CHARS})")
+    return block
+
+
 # ═══════════════════════════════════════════════════════════════
 # SOURCE 1 — materiamedica.info
 # ═══════════════════════════════════════════════════════════════
@@ -650,13 +672,15 @@ def run(conn, urls: list[str], parser_fn, label: str):
             continue
 
         issues = quality_check(remedy)
-        if issues:
+        blocking = blocking_issues(remedy, issues)
+        if blocking:
             log.warning("  → QUALITY GATE FAILED — remedy NOT saved.")
-            for issue in issues:
+            for issue in blocking:
                 log.warning("     ✗  %s", issue)
-            log_scrape(conn, url, "error", issues)
+            log_scrape(conn, url, "error", blocking)
             errors += 1
             continue
+        warnings = issues
 
         try:
             save_remedy(conn, remedy)
@@ -677,7 +701,11 @@ def run(conn, urls: list[str], parser_fn, label: str):
             remedy.name, remedy.common_name,
             len(remedy.sections), total_chars,
         )
-        log_scrape(conn, url, "success")
+        if warnings:
+            log.warning("  ! saved with warnings: %s", " | ".join(warnings))
+            log_scrape(conn, url, "success", ["saved with warnings: " + " | ".join(warnings)])
+        else:
+            log_scrape(conn, url, "success")
         success += 1
 
     log.info("-" * 65)

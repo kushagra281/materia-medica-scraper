@@ -100,6 +100,25 @@ def test_boericke_title_clutter_removed():
     assert r.name == "GLONOINUM"
 
 
+def test_short_sections_warn_but_do_not_block_a_real_remedy():
+    # Arnica's real page has a 17-character "Relationship" line and a short introduction;
+    # the old gate refused the whole remedy.
+    r = scraper.Remedy(slug="arnica-montana", name="ARNICA MONTANA", common_name="Leopard's Bane",
+                       introduction="Short intro.", source_site=scraper.SOURCE_SITE if hasattr(scraper, "SOURCE_SITE") else "materiamedica.info",
+                       source_url="u",
+                       sections=[scraper.Section(heading="Mind", content="Fears touch; says nothing is the matter. " * 3, order=1),
+                                 scraper.Section(heading="Relationship", content="Compare: Rhus.", order=2)])
+    issues = scraper.quality_check(r)
+    assert issues, "this page does have warnings"
+    assert scraper.blocking_issues(r, issues) == [], scraper.blocking_issues(r, issues)
+
+
+def test_junk_pages_are_still_blocked():
+    r = scraper.Remedy(slug="x", name="X", common_name="", introduction="", source_site="materiamedica.info",
+                       source_url="u", sections=[])
+    assert scraper.blocking_issues(r, scraper.quality_check(r))
+
+
 def test_clean_spacing():
     assert scraper._clean("word , next ( x ) .") == "word, next (x)."
 
