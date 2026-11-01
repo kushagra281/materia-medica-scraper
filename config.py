@@ -54,7 +54,7 @@ KENT_INDEX = (
     "https://www.materiamedica.info"
     "/en/materia-medica/james-tyler-kent/index"
 )
-KENT_MIN_TOTAL_CHARS = 1500   # Kent pages are long lectures without labelled sections
+KENT_MIN_TOTAL_CHARS = 300    # real Kent lectures run from ~370 chars (rare remedies) up; 1500 refused genuine ones   # Kent pages are long lectures without labelled sections
 
 HOMEOINT_BASE    = "https://www.homeoint.org/books/boericmm/"
 HOMEOINT_LETTERS = list("abcdefghijklmnopqrstuvwxyz")

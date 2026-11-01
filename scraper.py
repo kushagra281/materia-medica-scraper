@@ -476,6 +476,14 @@ def mm_parse(url: str, soup: BeautifulSoup) -> Optional[Remedy]:
     # Parse introduction + sections
     introduction, sections = parse_sections(body_text)
 
+    # Some Boericke entries are plain prose with no "Heading.--" labels. They are real remedy
+    # text, so keep the prose as one searchable section rather than refusing the page.
+    # (The site's own index page is not a remedy.)
+    if slug == "index":
+        return None
+    if not sections and len(introduction) >= 150:
+        sections = [Section(heading="Description", order=1, content=introduction)]
+
     return Remedy(
         slug=slug,
         name=name,
