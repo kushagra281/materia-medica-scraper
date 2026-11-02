@@ -89,6 +89,7 @@ def test_intro_only_pages_become_a_description_section():
                          "Increases the amount of hemoglobin.<br/> Anemia and emaciation. Dry, irritating cough."},
         {"id": 2, "name": "ACONITUM NAPELLUS", "source_site": "materiamedica.info", "introduction": "x" * 400},   # already has symptoms
         {"id": 3, "name": "TINY", "source_site": "materiamedica.info", "introduction": "Too short."},
+        {"id": 4, "name": "EMPTY", "source_site": "materiamedica.info", "introduction": None},
     ]
     extra = intro_sections(remedies, covered_ids={2})
     assert [e["remedy_id"] for e in extra] == [1]

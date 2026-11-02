@@ -148,12 +148,12 @@ def intro_sections(remedies, covered_ids) -> list[dict]:
     for r in remedies:
         if r["id"] in covered_ids:
             continue
-        text = re.sub(r'<br\s*/?>', ' ', r.get("introduction") or "")
+        text = re.sub(r'<br\s*/?>', ' ', r["introduction"] or "")
         text = re.sub(r'\s+', ' ', text).strip()
         if len(text) < MIN_INTRO_CHARS:
             continue
         out.append({
-            "remedy_id": r["id"], "remedy_name": r["name"], "source_site": r.get("source_site", ""),
+            "remedy_id": r["id"], "remedy_name": r["name"], "source_site": r["source_site"] or "",
             "heading": "Description", "content": text,
         })
     return out
