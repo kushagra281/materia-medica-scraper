@@ -4,7 +4,7 @@ Tests for extract_symptoms.py helpers (no database needed).
     python test_extract_symptoms.py
 """
 
-from extract_symptoms import split_symptoms, build_rows, name_key, clean_name, wrap_long, KENT_SOURCE
+from extract_symptoms import intro_sections, split_symptoms, build_rows, name_key, clean_name, wrap_long, KENT_SOURCE
 
 
 def test_short_symptoms_are_kept():
@@ -80,6 +80,22 @@ def test_long_sentences_are_cut_at_a_comma():
     parts = wrap_long(long)
     assert len(parts) > 1 and all(len(p) <= 500 for p in parts)
     assert " ".join(parts).replace(",", "").split() == long.replace(",", "").split()
+
+
+def test_intro_only_pages_become_a_description_section():
+    remedies = [
+        {"id": 1, "name": "VANADIUM METALLICUM", "source_site": "materiamedica.info",
+         "introduction": "Its action is that of an oxygen carrier and a catalyzer, hence its use in wasting diseases. "
+                         "Increases the amount of hemoglobin.<br/> Anemia and emaciation. Dry, irritating cough."},
+        {"id": 2, "name": "ACONITUM NAPELLUS", "source_site": "materiamedica.info", "introduction": "x" * 400},   # already has symptoms
+        {"id": 3, "name": "TINY", "source_site": "materiamedica.info", "introduction": "Too short."},
+        {"id": 4, "name": "EMPTY", "source_site": "materiamedica.info", "introduction": None},
+    ]
+    extra = intro_sections(remedies, covered_ids={2})
+    assert [e["remedy_id"] for e in extra] == [1]
+    assert extra[0]["heading"] == "Description" and "<br" not in extra[0]["content"]
+    rows, _ = build_rows(extra)
+    assert rows and all(r[0] == 1 and r[2] == "Description" for r in rows)
 
 
 if __name__ == "__main__":

@@ -136,6 +136,29 @@ def wrap_long(symptom: str, limit: int = MAX_SYMPTOM_CHARS) -> list[str]:
     return [o for o in out if len(o) >= MIN_SYMPTOM_CHARS]
 
 
+MIN_INTRO_CHARS = 100
+
+
+def intro_sections(remedies, covered_ids) -> list[dict]:
+    """Pages that have only an introduction paragraph plus Dose / Relationship (for example
+    Vanadium metallicum) yield no symptoms from their sections, so they could never be found.
+    Their introduction is the page's real text: treat it as one "Description" section.
+    Remedies that already produced symptoms are left alone (their introduction is general notes)."""
+    out = []
+    for r in remedies:
+        if r["id"] in covered_ids:
+            continue
+        text = re.sub(r'<br\s*/?>', ' ', r["introduction"] or "")
+        text = re.sub(r'\s+', ' ', text).strip()
+        if len(text) < MIN_INTRO_CHARS:
+            continue
+        out.append({
+            "remedy_id": r["id"], "remedy_name": r["name"], "source_site": r["source_site"] or "",
+            "heading": "Description", "content": text,
+        })
+    return out
+
+
 def build_rows(sections) -> tuple[list[tuple], dict]:
     """
     Turn (remedy_id, remedy_name, heading, content) section rows into
@@ -237,6 +260,13 @@ def run():
 
     # Extract and insert symptoms
     all_symptoms, stats = build_rows(sections)
+
+    # Pages whose only text is the introduction paragraph (nothing above produced a symptom for them)
+    cur.execute("SELECT id, name, source_site, introduction FROM remedies")
+    extra = intro_sections(cur.fetchall(), {row[0] for row in all_symptoms})
+    if extra:
+        print(f"   {len(extra)} remedies have only an introduction; adding it as 'Description'")
+        all_symptoms, stats = build_rows(list(sections) + extra)
 
     print(f"   Extracted {len(all_symptoms)} individual symptoms "
           f"for {stats['distinct_remedies']} distinct remedies")
