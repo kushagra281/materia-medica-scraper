@@ -147,3 +147,21 @@ def test_index_page_is_not_a_remedy():
     import scraper
     html = "<html><body><h1>Index</h1><p>" + "x " * 200 + "</p></body></html>"
     assert scraper.mm_parse("https://x/en/materia-medica/william-boericke/index", BeautifulSoup(html, "html.parser")) is None
+
+
+def test_book_supplement_entries_parse():
+    import json, book_supplement
+    entries = json.loads(book_supplement.DATA_FILE.read_text(encoding="utf-8"))
+    assert len(entries) >= 50
+    names = {book_supplement.norm(e["name"]) for e in entries}
+    assert "ACONITUMNAPELLUS" in names and "ABROTANUM" in names
+    ok = 0
+    for e in entries:
+        r = book_supplement.build_remedy(e)
+        assert r.source_url == "boericke-book:" + r.slug
+        if not scraper.blocking_issues(r, scraper.quality_check(r)):
+            ok += 1
+    assert ok >= len(entries) - 3
+    aco = book_supplement.build_remedy(next(e for e in entries if e["name"].startswith("ACONITUM")))
+    assert aco.common_name == "Monkshood" and any(s.heading == "Mind" for s in aco.sections)
+    assert "\x9c" not in json.dumps(entries, ensure_ascii=False)
