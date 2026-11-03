@@ -748,6 +748,7 @@
 {
 "name": "CUCURBITA CITRULLUS",
 "common": "Seeds of Watermelon",
+"allow_short": true,
 "lines": [
 "Infusion for painful urination with sense of constriction and backache."
 ]

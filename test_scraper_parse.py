@@ -165,3 +165,17 @@ def test_book_supplement_entries_parse():
     aco = book_supplement.build_remedy(next(e for e in entries if e["name"].startswith("ACONITUM")))
     assert aco.common_name == "Monkshood" and any(s.heading == "Mind" for s in aco.sections)
     assert "\x9c" not in json.dumps(entries, ensure_ascii=False)
+
+
+def test_book_supplement_keeps_a_one_sentence_entry_marked_allow_short():
+    import json, book_supplement
+    entries = json.loads(book_supplement.DATA_FILE.read_text(encoding="utf-8"))
+    e = next(x for x in entries if x["name"] == "CUCURBITA CITRULLUS")
+    r = book_supplement.build_remedy(e)
+    assert [s.heading for s in r.sections] == ["Description"]
+    assert book_supplement.blocking_for(e, r, scraper.quality_check(r)) == []
+    # without the mark the size guard still refuses it
+    plain = {k: v for k, v in e.items() if k != "allow_short"}
+    r2 = book_supplement.build_remedy(plain)
+    assert not r2.sections
+    assert book_supplement.blocking_for(plain, r2, scraper.quality_check(r2))

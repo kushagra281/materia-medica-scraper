@@ -30,7 +30,8 @@ def slugify(name: str) -> str:
 def build_remedy(entry: dict) -> scraper.Remedy:
     intro, sections = scraper.parse_sections("\n".join(entry["lines"]))
     # Prose-only entries (no "Mind.--" labels) are kept as one searchable section.
-    if not sections and len(intro) >= 150:
+    # An entry the book itself gives in one short sentence is marked "allow_short" in the data file.
+    if not sections and (len(intro) >= 150 or (entry.get("allow_short") and intro)):
         sections = [scraper.Section(heading="Description", order=1, content=intro)]
         intro = ""
     slug = slugify(entry["name"])
@@ -43,6 +44,14 @@ def build_remedy(entry: dict) -> scraper.Remedy:
         source_site=SOURCE_SITE,
         source_url=f"boericke-book:{slug}",
     )
+
+
+def blocking_for(entry: dict, remedy: scraper.Remedy, issues: list[str]) -> list[str]:
+    blocking = scraper.blocking_issues(remedy, issues)
+    if entry.get("allow_short"):
+        # The book has only this short text for the remedy; the size guard exists for failed scrapes.
+        blocking = [b for b in blocking if not b.startswith("TOTAL TOO SMALL")]
+    return blocking
 
 
 def main() -> None:
@@ -58,7 +67,7 @@ def main() -> None:
             continue
         remedy = build_remedy(entry)
         issues = scraper.quality_check(remedy)
-        blocking = scraper.blocking_issues(remedy, issues)
+        blocking = blocking_for(entry, remedy, issues)
         if blocking:
             log.warning("refused %s: %s", remedy.name, " | ".join(blocking))
             scraper.log_scrape(conn, remedy.source_url, "error", blocking)
