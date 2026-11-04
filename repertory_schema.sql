@@ -65,3 +65,37 @@ DROP POLICY IF EXISTS "Public read repertory_rubrics"  ON repertory_rubrics;
 CREATE POLICY "Public read repertory_sources"  ON repertory_sources  FOR SELECT USING (true);
 CREATE POLICY "Public read repertory_remedies" ON repertory_remedies FOR SELECT USING (true);
 CREATE POLICY "Public read repertory_rubrics"  ON repertory_rubrics  FOR SELECT USING (true);
+
+-- ── Remedy -> rubrics ("which rubrics contain Sulph. and Calc., but not Puls.?") ──────────────
+-- The GIN index makes the jsonb key tests (?& all of, ?| any of) fast on 74k rubrics.
+CREATE INDEX IF NOT EXISTS repertory_rubrics_remedies_gin ON repertory_rubrics USING gin (remedies);
+
+-- Narrowest rubrics first: a rubric holding few remedies says more about them than a huge one.
+-- Every included remedy must be at p_min_grade or higher; no excluded remedy may be present.
+CREATE OR REPLACE FUNCTION repertory_rubrics_by_remedies(
+    p_source    TEXT,
+    p_include   TEXT[],
+    p_exclude   TEXT[] DEFAULT '{}',
+    p_min_grade INT    DEFAULT 1,
+    p_limit     INT    DEFAULT 100,
+    p_offset    INT    DEFAULT 0
+) RETURNS TABLE (
+    id BIGINT, chapter TEXT, full_path TEXT, depth SMALLINT,
+    n_remedies INT, child_count INT, grades JSONB
+)
+LANGUAGE sql STABLE SET search_path = public AS $$
+    SELECT r.id, r.chapter, r.full_path, r.depth, r.n_remedies, r.child_count,
+           (SELECT jsonb_object_agg(k, r.remedies -> k) FROM unnest(p_include) AS k) AS grades
+      FROM repertory_rubrics r
+     WHERE cardinality(p_include) BETWEEN 1 AND 5
+       AND cardinality(p_exclude) <= 50
+       AND r.source = p_source
+       AND r.depth > 0
+       AND r.remedies ?& p_include
+       AND NOT (r.remedies ?| p_exclude)
+       AND (SELECT bool_and((r.remedies ->> k)::int >= p_min_grade) FROM unnest(p_include) AS k)
+     ORDER BY r.n_remedies ASC, r.id ASC
+     LIMIT least(greatest(p_limit, 1), 200) OFFSET greatest(p_offset, 0)
+$$;
+
+GRANT EXECUTE ON FUNCTION repertory_rubrics_by_remedies(TEXT, TEXT[], TEXT[], INT, INT, INT) TO anon, authenticated;
