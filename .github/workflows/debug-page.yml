@@ -1,6 +1,10 @@
 # Manual: show how the scraper reads one page (no database writes).
 name: Debug page
 on:
+  # Also runs on a pull request that touches debug_page.py or this file (that also registers the
+  # workflow, which GitHub did not list after the first merge).
+  pull_request:
+    paths: [debug_page.py, .github/workflows/debug-page.yml]
   workflow_dispatch:
     inputs:
       url:
@@ -18,7 +22,7 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Run (the URL goes through an env var, never into the shell source)
         env:
-          PAGE_URL: ${{ inputs.url }}
+          PAGE_URL: ${{ inputs.url || 'https://www.materiamedica.info/en/materia-medica/william-boericke/strychninum-phosphoricum' }}
         run: python debug_page.py "$PAGE_URL" | tee out.txt
       - name: Summary
         run: |
