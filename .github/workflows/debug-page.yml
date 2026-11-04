@@ -12,10 +12,14 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
+        with: { persist-credentials: false }
       - uses: actions/setup-python@v5
         with: { python-version: "3.12", cache: pip }
       - run: pip install -r requirements.txt
-      - run: python debug_page.py "${{ inputs.url }}" | tee out.txt
+      - name: Run (the URL goes through an env var, never into the shell source)
+        env:
+          PAGE_URL: ${{ inputs.url }}
+        run: python debug_page.py "$PAGE_URL" | tee out.txt
       - name: Summary
         run: |
           { echo '## Debug page'; echo '```'; cat out.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
