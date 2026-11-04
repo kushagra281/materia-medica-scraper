@@ -1,0 +1,78 @@
+# Loads a graded repertory (rubric tree + printed grades 1-3) into the repertory_* tables.
+# Start it by hand: GitHub -> Actions -> "Import repertory" -> Run workflow.
+#
+#  * "Dry run" is ON by default: it only reads the data and prints counts and any problems.
+#  * To really load, untick "Dry run" AND tick "I have read the licence".
+#  * The data is not stored in this repository. It is fetched from
+#    drsamonline/homoeopathic-materia-medica-repertory-json at a pinned commit.
+#  * Uses the same PGHOST ... PGPASSWORD secrets as "Rebuild data".
+#  * Removing a book again: DELETE FROM repertory_sources WHERE slug = '<book>';  (cascades)
+name: Import repertory
+
+on:
+  workflow_dispatch:
+    inputs:
+      book:
+        description: "Which book (Repertorium Publicum = GNU GPL v3)"
+        type: choice
+        options:
+          - repertorium-publicum-2008
+        default: repertorium-publicum-2008
+      dry_run:
+        description: "Dry run: read and check only, write nothing"
+        type: boolean
+        default: true
+      accept_licence:
+        description: "I have read the book's licence (see LICENSE in the data repository) and want to load it"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BOOK: ${{ inputs.book }}
+      ACCEPT_LICENCE: ${{ inputs.accept_licence }}
+      PGHOST: ${{ secrets.PGHOST }}
+      PGPORT: ${{ secrets.PGPORT }}
+      PGDATABASE: ${{ secrets.PGDATABASE }}
+      PGUSER: ${{ secrets.PGUSER }}
+      PGPASSWORD: ${{ secrets.PGPASSWORD }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Fetch the data (pinned commit, only this book's folder)
+        uses: actions/checkout@v5
+        with:
+          repository: drsamonline/homoeopathic-materia-medica-repertory-json
+          ref: 9a83582ace903ca65a8f649f2e1012f0604cb006
+          path: repertory-data
+          sparse-checkout: |
+            repertory/${{ inputs.book }}
+            LICENSE
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Offline tests
+        run: python test_import_repertory.py
+      - name: Check the data (always, writes nothing)
+        run: python import_repertory.py --data-dir repertory-data --book "$BOOK" --dry-run
+      - name: Load into the database
+        if: ${{ inputs.dry_run == false }}
+        run: |
+          if [ "$ACCEPT_LICENCE" != "true" ]; then
+            echo "Not loading: tick 'I have read the licence' to confirm."
+            exit 1
+          fi
+          for v in PGHOST PGPORT PGDATABASE PGUSER PGPASSWORD; do
+            if [ -z "${!v}" ]; then echo "Missing secret $v"; exit 1; fi
+          done
+          python import_repertory.py --data-dir repertory-data --book "$BOOK"
