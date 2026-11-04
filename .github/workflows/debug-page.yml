@@ -1,0 +1,25 @@
+# Manual: show how the scraper reads one page (no database writes).
+name: Debug page
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Page URL"
+        default: "https://www.materiamedica.info/en/materia-medica/william-boericke/strychninum-phosphoricum"
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with: { persist-credentials: false }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Run (the URL goes through an env var, never into the shell source)
+        env:
+          PAGE_URL: ${{ inputs.url }}
+        run: python debug_page.py "$PAGE_URL" | tee out.txt
+      - name: Summary
+        run: |
+          { echo '## Debug page'; echo '```'; cat out.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
