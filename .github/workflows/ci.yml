@@ -22,3 +22,4 @@ jobs:
         run: |
           python test_extract_symptoms.py
           python test_scraper_parse.py
+          python test_import_repertory.py

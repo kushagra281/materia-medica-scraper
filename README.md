@@ -25,6 +25,25 @@ then `python scraper.py`, `python extract_symptoms.py`, `python rebuild_rubrics.
 `migrate_to_supabase.py` is only for copying from a separate local Postgres; with the settings above
 the scraper writes straight into Supabase and it is not needed.
 
+## Graded repertory (Repertorium Publicum)
+
+The `rubrics` / `rubric_remedies` tables are derived from the materia medica sentences, so every
+grade in them is 1 and the "tree" is only heading > sentence. For real repertorisation there is a
+separate set of tables, `repertory_sources`, `repertory_remedies` and `repertory_rubrics`
+(`repertory_schema.sql`): a rubric tree with the printed grades 1-3, one row per rubric with its
+remedies packed as `{"Acon.": 3, ...}`.
+
+- Data: *Repertorium Publicum* (2008, Vladimir Polony; 74,480 rubrics, ~735,000 graded links, 669
+  remedies), taken from `drsamonline/homoeopathic-materia-medica-repertory-json`. It is a Kent-derived
+  repertory, **not** Kent's 1897 first edition, and it is licensed **GNU GPL v3** (the other books in
+  that repository are CC0, but Kent 1897 has no grades and Knerr 1896 is mostly ungraded and OCR-noisy).
+- It is not stored in this repository. *Actions -> Import repertory* fetches it at a pinned commit.
+  First run it as a **dry run** (default), then untick it and tick "I have read the licence".
+- The app credits the book from `repertory_sources.attribution`. To remove the book again:
+  `DELETE FROM repertory_sources WHERE slug = 'repertorium-publicum-2008';` (cascades).
+- Offline tests: `python test_import_repertory.py`. Local dry run:
+  `python import_repertory.py --data-dir <clone of the data repo> --book repertorium-publicum-2008 --dry-run`.
+
 ## One-time repair of the existing data
 
 The first scrape had three problems (found by checking the live database):
@@ -39,4 +58,4 @@ The first scrape had three problems (found by checking the live database):
 
 To repair: run the *Rebuild data* workflow with "Re-scrape" ticked (it sets `FORCE_REFRESH=1`).
 
-Tests (no database or network needed): `python test_extract_symptoms.py` and `python test_scraper_parse.py`
+Tests (no database or network needed): `python test_extract_symptoms.py`, `python test_scraper_parse.py` and `python test_import_repertory.py`
